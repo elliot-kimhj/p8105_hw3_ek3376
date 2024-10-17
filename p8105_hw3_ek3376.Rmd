@@ -1,0 +1,210 @@
+---
+title: "p8105_hw3_ek3376"
+author: "Elliot Kim"
+date: "2024-10-16"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(p8105.datasets)
+data("ny_noaa")
+```
+
+## Problem 1
+
+### data 
+
+```{r, echo = FALSE}
+summary(ny_noaa)
+str(ny_noaa)
+```
+
+
+The ny_noaa dataset has `r nrow(ny_noaa)-1` observations and `r ncol(ny_noaa)` variables. Key variables that are included in this dataset are `r names(ny_noaa)`. These variables are identified as followed:
+
+id: Weather station ID, date: Date of observation, prcp: Precipitation (tenths of mm), snow: Snowfall (mm), snwd: Snow depth (mm). tmax: Maximum temperature (tenths of degrees C), and tmin: Minimum temperature (tenths of degrees C).
+
+The ny_noaa dataset has `r sum(is.na(ny_noaa))` missing values. 
+
+### data cleaning
+```{r}
+ny_noaa = ny_noaa |>
+  mutate(date = as.Date(date)) |>
+  mutate(year = year(date), month = month(date), day = day(date)) |>
+  mutate(prcp = as.numeric(prcp) / 10, tmax = as.numeric(tmax) / 10, tmin = as.numeric(tmin) / 10, snwd = as.numeric(snwd) / 10)
+```
+
+
+### snowfall observations
+```{r}
+ny_noaa |>
+  count(snow) |>
+  arrange(desc(n)) |>
+  slice_head(n=5)
+```
+The most common observation of snowfall is 0 mm, since many regions may lack snow during most times of the year. The second most common observation was NA, which is expected due to the high proportion of missing data. 
+
+
+
+### plot
+
+```{r}
+
+ny_noaa |>
+  filter(month %in% c(1,7)) |>
+  group_by(id, month, year) |>
+  summarise(avg_tmax = mean(tmax, na.rm = TRUE)) |>
+              ggplot(aes(x = id, y=avg_tmax, color = month)) + geom_point() + geom_path() + facet_grid(~month) + labs(title = "Average Max Temperature in January and July")
+```
+Based on the plots, July appears to have a greater averager max temperature than July.
+
+
+## Problem 2
+
+```{r}
+accel_nhanes = read_csv("./data/nhanes_accel.csv", na = c(".", "NA", "")) |>
+  janitor::clean_names()
+
+covar_nhanes = read_csv("./data/nhanes_covar.csv", na = c(".", "NA", ""), skip = 4) |>
+  janitor::clean_names() |>
+  mutate(sex = case_match(sex, 1 ~ "male", 2 ~ "female"), sex = factor(sex), 
+         education = case_match(education, 1 ~ "Less than high school", 2 ~ "High school equivalent", 3 ~ "More than high school"), education = factor(education))
+
+#combine datasets
+mims_nhanes = full_join(covar_nhanes, accel_nhanes, by = "seqn") |>
+  filter(!is.na(sex), !is.na(age), !is.na(education), age >= 21) 
+```
+
+The dataset above includes a combination of the accel and covar datasets while filtering out missing demographic data and individuals less than 21 years of age. 
+
+### education category by sex table
+```{r}
+mims_nhanes |>
+  group_by(education, sex) |>
+  janitor::tabyl(sex, education)
+```
+
+The table above shows the number of male and female participants in each eduaction category. Based on the table, there appear to be more males with a high school equivalent education, while the other education levels appear to be relatively equal in sex distribution, with more slightly females having more than high school education and less than high school education. 
+
+```{r}
+mims_nhanes |>
+  ggplot(aes(x = age, fill = sex)) + geom_density(alpha = 0.5) + facet_grid(~ education) + labs(title = "Age distribution by Sex and Education Categories", x = "Age", y = "Density")
+```
+The density plot above displays the age distributions for men and women in each education category. Based on the plot, females with a high school equivalent education tend to be older than males. For those with less than high school education, sex distribution is relatively similar with slightly more females being older in age. Finally, for more than high school education, there is a high density of young females. 
+
+### total activity plot
+
+```{r}
+mims_nhanes |>
+  mutate(mims_total = rowSums(across(min1:min1440), na.rm = TRUE)) |>
+  ggplot(aes(x = age, y = mims_total, color = sex)) + geom_point(alpha = 0.5) + geom_smooth(se = FALSE) + facet_grid(. ~ education) + labs(title = "Total Activity by Age and Education Level", x = "Age", y = "Total MIMS")
+```
+The plot above displays a three-panel scatter plot comparing total activity by sex and age for each education category. Based on the plots, females with a high school equivalent degree appear to have a higher total MIMS overall in comparison to males. Among those with less than a high school degree, younger females appear to have a greater total MIMS than younger males while older males appear to have a greater total MIMS than older females. Among those with more than a high school degree, females have a greater total MIMS overall in comparison to males. 
+
+### acccelerometer plot
+```{r}
+mims_nhanes_long = mims_nhanes |>
+  pivot_longer(
+    cols = starts_with("min"),
+    names_to = "minute",
+    values_to = "MIMS"
+  )
+
+mims_nhanes_avg = mims_nhanes_long |>
+  group_by(minute, education, sex) |>
+  summarize(avg_mims = mean(MIMS, na.rm = TRUE))
+
+mims_nhanes_avg |>
+  ggplot(aes(x = minute, y = avg_mims, color = sex, group =sex)) + geom_smooth(se = FALSE) + facet_grid(~ education) + labs(title = "24 Hour Activity Time courses by Education level and Sex", x = "Minute of the Day", y = "average MIMS")
+```
+The three-panel plot above shows the 24-hour activity time courses by sex and education level. Based on the plot, those with less than a high school degree experience a greater average MIMS peak than the other education groups with comparable MIMS between sex. On the other hand, among those with high school equivalent and more than high school education level, females tend to experience a greater peak in average MIMS than males.
+
+
+## Problem 3
+
+```{r}
+Jan_2020_citi = read_csv("./data/Jan 2020 Citi.csv", na = c("NA", ".", "")) |>
+  janitor::clean_names() |>
+  mutate(year = "2020", month = "Jan")
+
+Jan_2024_citi = read_csv("./data/Jan 2024 Citi.csv", na = c("NA", ".", "")) |>
+  janitor::clean_names() |>
+  mutate(year = "2024", month = "Jan")
+
+July_2020_citi = read_csv("./data/July 2020 Citi.csv", na = c("NA", ".", "")) |>
+  janitor::clean_names() |>
+  mutate(year = "2020", month = "July")
+
+July_2024_citi = read_csv("./data/Jan 2020 Citi.csv", na = c("NA", ".", "")) |>
+  janitor::clean_names() |>
+  mutate(year = "2024", month = "July")
+
+citi_data = 
+  bind_rows(Jan_2020_citi, Jan_2024_citi, July_2020_citi, July_2024_citi) 
+
+summary(citi_data)
+str(citi_data)
+```
+
+The new citi_data dataset has `r nrow(citi_data) - 1` observations and `r ncol(citi_data)` variables. This dataset contains information on rides taken on the NYC Citi Bike system during January 2020, July 2020, Janurary 2024, and July 2024. 
+
+### Citi Table
+```{r}
+ride_summary = citi_data |>
+  group_by(year, month, member_casual) |>
+  summarise(ride_total = n())
+
+ride_summary_wide = ride_summary |>
+  pivot_wider(names_from = member_casual, values_from = ride_total) |>
+  arrange(year, month)
+
+print(ride_summary_wide)
+```
+
+The table above shows the total number of rides in each combination of year and month by rider type (casual and members). Based on the table, there were more rides from members than casual riders during all months and years with a peak in rides during July 2020 and Jan 2024. 
+
+### 5 most popular starting stations in July 2024 table 
+```{r}
+top_start = citi_data |>
+  filter(year == "2020", month == "July") |>
+  group_by(start_station_name) |>
+  summarise(total_rides = n()) |>
+  arrange(desc(total_rides)) |>
+  head(n=5)
+
+print(top_start)
+```
+
+
+Based on the table above, the top 5 most popular stations in July 2020 were `r top_start |> pull(start_station_name)`.
+
+### Plot showing effect of day of week, month, and year on median ride duration
+
+```{r}
+median_ride_duration = citi_data |>
+  group_by(weekdays, month, year) |>
+  summarise(median_duration = median(duration, na.rm = TRUE))
+
+ggplot(median_ride_duration, aes(x = weekdays, y = median_duration, fill = month)) + geom_bar(stat = "identity", position = "dodge") + facet_wrap(.~year) + labs(title = "Median Ride Duration by Day, Month, and Year", x = "Day of the Week", y = "Median Ride Duration", fill = "Month")
+```
+
+The plot above shows the median ride duration by day, month, and year. Based on the plot, 2020 appears to have a higher median ride duration than 2024. Additionally, median ride duration is higher in July than June across all years. Finally, median ride duration peaks on the weekends for both years in July. 
+
+### Impact of month, membership status, and bike type on distribution of ride duration
+
+```{r}
+citi_2024 = citi_data |>
+  filter(year == "2024")
+
+ggplot(citi_2024, aes(x = duration, fill = rideable_type)) + geom_density(alpha = 0.5) + facet_grid(member_casual ~ month) + labs(title = "Distribution of Ride Duration by Month and Membership", x = "Ride Duration", y = "Density", fill = "Bike Type")
+```
+
+The plot above shows the distribution of ride duration by month and membership. Based on the plots, members have a lower ride duration than casual rides. Among casual riders, during the month of January, classic bikes had a slightly higher ride duration while in July, electric bikes appeared to have a greater ride duration. 
